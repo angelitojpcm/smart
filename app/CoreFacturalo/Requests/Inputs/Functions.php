@@ -1,0 +1,120 @@
+<?php
+
+namespace App\CoreFacturalo\Requests\Inputs;
+
+use App\Models\Tenant\Company;
+use App\Models\Tenant\Configuration;
+use App\Models\Tenant\Document;
+use App\Models\Tenant\Series;
+use Carbon\Carbon;
+use Exception;
+use Modules\Document\Models\SeriesConfiguration;
+
+class Functions
+{
+    public static function newNumber($soap_type_id, $document_type_id, $series, $number, $model)
+    {
+
+        if ($number === '#') {
+
+            $document = $model::select('number')
+                ->where('soap_type_id', $soap_type_id)
+                ->where('document_type_id', $document_type_id)
+                ->where('series', $series)
+                ->orderBy('number', 'desc')
+                ->first();
+
+            if ($document) {
+
+                return (int)$document->number + 1;
+            } else {
+
+                $series_configuration = SeriesConfiguration::where([['document_type_id', $document_type_id], ['series', $series]])->first();
+                return ($series_configuration) ? (int) $series_configuration->number : 1;
+            }
+        }
+
+        return $number;
+
+        // if ($number === '#') {
+        //     $document = $model::select('number')
+        //                         ->where('soap_type_id', $soap_type_id)
+        //                         ->where('document_type_id', $document_type_id)
+        //                         ->where('series', $series)
+        //                         ->orderBy('number', 'desc')
+        //                         ->first();
+        //     return ($document)?(int)$document->number+1:1;
+        // }
+        // return $number;
+    }
+
+    public static function filename($company, $document_type_id, $series, $number)
+    {
+        return join('-', [$company->number, $document_type_id, $series, $number]);
+    }
+
+    public static function validateUniqueDocument($soap_type_id, $document_type_id, $series, $number, $model, $company_id = null)
+    {
+        $configuration = Configuration::first();
+        if ($configuration->multi_companies && $company_id) {
+            $company_number = null;
+            if ($company_id) {
+                $company = Company::where('website_id', $company_id)->first();
+                $company_number = $company->number;
+            }
+            $document = $model::where('soap_type_id', $soap_type_id)
+                ->where('document_type_id', $document_type_id)
+                ->where('series', $series)
+                ->where('number', $number);
+            if ($company_number) {
+
+                $document->where('alter_company->number', $company_number);
+            }
+                //agregar una busqueda en una columna json
+             $document =   $document->first();
+            if ($document) {
+                throw new Exception("El documento: {$document_type_id} {$series}-{$number} ya se encuentra registrado.");
+            }
+        } else {
+            $document = $model::where('soap_type_id', $soap_type_id)
+                ->where('document_type_id', $document_type_id)
+                ->where('series', $series)
+                ->where('number', $number)
+                ->first();
+            if ($document) {
+                throw new Exception("El documento: {$document_type_id} {$series}-{$number} ya se encuentra registrado.");
+            }
+        }
+    }
+
+    public static function identifier($soap_type_id, $date_of_issue, $model)
+    {
+        $documents = $model::where('soap_type_id', $soap_type_id)
+            ->where('date_of_issue', $date_of_issue)
+            ->get();
+        $numeration = count($documents) + 1;
+        $path = explode('\\', $model);
+        switch (array_pop($path)) {
+            case 'Voided':
+                $prefix = 'RA';
+                break;
+            default:
+                $prefix = 'RC';
+                break;
+        }
+
+        return join('-', [$prefix, Carbon::parse($date_of_issue)->format('Ymd'), $numeration]);
+    }
+
+    /**
+     * @param      $inputs
+     * @param      $key
+     * @param null $default
+     *
+     * @return mixed|null
+     */
+    public static function valueKeyInArray($inputs, $key, $default = null)
+    {
+        return (isset($inputs[$key]) && null !== $inputs[$key]) ? $inputs[$key] : $default;
+    }
+}
